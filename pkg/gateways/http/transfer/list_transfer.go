@@ -10,14 +10,25 @@ import (
 )
 
 func (s *Handler) ListTransfers(w http.ResponseWriter, r *http.Request) {
-	token := r.Header.Get("Authorization")
+	w.Header().Set("content-type", "application/json")
+	header := r.Header.Get("Authorization")
+
+	token, err := CheckAuthorizationHeaderType(header)
 
 	l := s.logger.WithFields(log.Fields{
 		"module": "https",
-		"method": "processLogin",
+		"method": "processTransfer",
 	})
-	w.Header().Set("content-type", "application/json")
 	e := errorStruct{l: l, token: token, w: w}
+
+	if err != nil {
+		l.WithFields(log.Fields{
+			"type": http.StatusBadRequest,
+		}).Error(err)
+		e.errorCreate(err)
+		return
+	}
+
 	accountOriginID, tokenID, err := authentication.DecoderToken(token)
 	if err != nil {
 		e.errorList(err)
@@ -40,7 +51,6 @@ func (s *Handler) ListTransfers(w http.ResponseWriter, r *http.Request) {
 	}
 	l.WithFields(log.Fields{
 		"type": http.StatusOK,
-		"time": domain2.CreatedAt(),
 	}).Info("transfers handled successfully!")
 	response := GetTransfersResponse{Transfers: Transfers}
 	w.WriteHeader(http.StatusOK)
@@ -52,30 +62,25 @@ func (e errorStruct) errorList(err error) {
 		ErrJson := http2.ErrorsResponse{Errors: err.Error()}
 		if err.Error() == domain2.ErrInvalidToken.Error() {
 			e.l.WithFields(log.Fields{
-				"type":          http.StatusUnauthorized,
-				"time":          domain2.CreatedAt(),
-				"request_token": e.token,
+				"type": http.StatusUnauthorized,
 			}).Error(err)
 			e.w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(e.w).Encode(ErrJson)
 		} else if err.Error() == domain2.ErrSelect.Error() {
 			e.l.WithFields(log.Fields{
 				"type": http.StatusInternalServerError,
-				"time": domain2.CreatedAt(),
 			}).Error(err)
 			e.w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(e.w).Encode(ErrJson)
 		} else if err.Error() == domain2.ErrInvalidID.Error() {
 			e.l.WithFields(log.Fields{
 				"type": http.StatusNotFound,
-				"time": domain2.CreatedAt(),
 			}).Error(err)
 			e.w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(e.w).Encode(ErrJson)
-		} else if err.Error() == domain2.ErrParse.Error() {
+		} else if err.Error() == domain2.ErrParse.Error() || err.Error() == ErrInvalidCredential.Error() {
 			e.l.WithFields(log.Fields{
 				"type": http.StatusBadRequest,
-				"time": domain2.CreatedAt(),
 			}).Error(err)
 			e.w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(e.w).Encode(ErrJson)
